@@ -213,6 +213,19 @@ std::wstring format(const wchar_t* fmt, ...)
 	return strResult;
 }
 
+void Log(const wstring& log)
+{
+	auto wstring_to_gbk = [](const std::wstring& str)->std::string {
+		int len = WideCharToMultiByte(CP_ACP, 0, str.c_str(), -1, NULL, 0, NULL, NULL);
+		std::string ret;
+		ret.resize(len);
+		len = WideCharToMultiByte(CP_ACP, 0, str.c_str(), -1, const_cast<char*>(ret.data()), len, NULL, NULL);
+		return ret;
+	};
+
+	cout << wstring_to_gbk(log);
+}
+
 int wmain(int argv, wchar_t** args)
 {
 	if (argv < 2)
@@ -220,9 +233,8 @@ int wmain(int argv, wchar_t** args)
 		Help();
 		return 1;
 	}
-
-	std::locale loc("");
-	std::wcout.imbue(loc);
+	
+	setlocale(LC_ALL, "");
 
 	wstring content = ReadFile(args[1]);
 
@@ -233,30 +245,55 @@ int wmain(int argv, wchar_t** args)
 
 	auto gitlogs = ParseLogDetail(content);
 
+	if (argv==2)
+	{
+		std::set<std::wstring> affected_files;
+		for (auto&& logIt = gitlogs.rbegin(); logIt != gitlogs.rend(); logIt++)
+		{
+			affected_files.insert((*logIt)->included_files.begin(), (*logIt)->included_files.end());
+		}
+
+		wstringstream stream;
+		for (auto& f : affected_files)
+		{	
+			stream << f << endl;
+		}
+
+		Log(stream.str());		
+	}
+
+	std::string validCmd = "ynq";
+
 	if (argv == 3)
 	{
 		int curIndex = 0;
 		const int total = gitlogs.size();
 		for(auto&& logIt=gitlogs.rbegin(); logIt!=gitlogs.rend(); logIt++)
 		{
+			curIndex++;
 			wstringstream stream;
 			stream << (*logIt)->commit_id << L" - " << (*logIt)->commit_msg << endl;			
 			for (auto& f : (*logIt)->included_files)
 			{
 				stream << f << endl;
 			}	
-			wcout << stream.str();
+			Log(L"\r\n"+stream.str());
 
 			char ch;
 			do
 			{
-				wcout << format(L"\r\nNeed merge [%d/%d]?(y/n)", curIndex, total);
+				Log(format(L"\r\nNeed merge [%d/%d]?(y/n/q)", curIndex, total));
 				cin >> ch;
-			} while (ch != 'n' && ch != 'y');
+			} while (validCmd.find(ch)==std::string::npos);
 
 			if (ch=='n')
 			{
 				continue;
+			}
+			else if (ch == 'q')
+			{
+				wcout << L"exit.";
+				break;
 			}
 
 			STARTUPINFOW si;
@@ -264,7 +301,7 @@ int wmain(int argv, wchar_t** args)
 
 			PROCESS_INFORMATION pi;
 			std::wstring cmdLine = L"git cherry-pick " + (*logIt)->commit_id;
-			wcout << cmdLine << endl;
+			Log(cmdLine+L"\r\n");
 
 			BOOL created=CreateProcess(NULL, cmdLine.data(), NULL, NULL, TRUE, 0, 0, args[2], &si, &pi);
 			if (created)
